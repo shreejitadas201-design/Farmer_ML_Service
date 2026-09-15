@@ -1,18 +1,35 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Tuple
 
-# Defines the input structure for incoming requests
-class WaitTimeRequest(BaseModel):
-    center_id: str = Field(..., example="CNT-8821")
-    current_queue_length: int = Field(..., ge=0, example=18)
-    active_counters: int = Field(..., gt=0, example=2)
-    avg_service_time_last_hr: float = Field(..., gt=0.0, example=8.5)
-    hour_of_day: int = Field(..., ge=0, le=23, example=10)
-    day_of_week: int = Field(..., ge=0, le=6, example=1) # 0=Monday, 6=Sunday
 
-# Defines the output structure returned to the user
+class WaitTimeRequest(BaseModel):
+    center_id: str
+    current_queue_length: int
+    active_counters: int
+    avg_service_time_last_hr: float
+    hour_of_day: int
+    day_of_week: int
+
+
 class WaitTimeResponse(BaseModel):
     center_id: str
     predicted_wait_minutes: float
     congestion_risk: str
     confidence_interval: Tuple[float, float]
+
+
+class FeedbackRequest(BaseModel):
+    center_id: str
+    current_queue_length: int
+    active_counters: int
+    avg_service_time_last_hr: float
+    hour_of_day: int
+    day_of_week: int
+    actual_wait_minutes: float
+
+
+class FeedbackResponse(BaseModel):
+    status: str
+    total_real_data_collected: int
+    is_using_synthetic: bool
+    message: str
