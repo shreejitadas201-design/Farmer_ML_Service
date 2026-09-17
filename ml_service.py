@@ -16,7 +16,7 @@ class MLEngine:
         self._init_db()
 
     def _init_db(self):
-        """Initializes SQLite table for storing feedback data."""
+        """Initializes SQLite table for storing feedback data and syncs synthetic flag."""
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute("""
@@ -38,6 +38,10 @@ class MLEngine:
         if cursor.fetchone()[0] == 0:
             self._seed_synthetic_data(cursor)
             conn.commit()
+
+        # Sync the synthetic flag with actual DB state upon startup
+        cursor.execute("SELECT COUNT(*) FROM procurement_records WHERE is_synthetic = 1")
+        self.is_using_synthetic = cursor.fetchone()[0] > 0
 
         conn.close()
 
@@ -63,15 +67,26 @@ class MLEngine:
         """, synthetic_rows)
 
     def load_model(self):
-        """Loads model from file if exists, otherwise trains initial baseline."""
+        """Loads model and scaler from file if exists, otherwise trains initial baseline."""
         if os.path.exists(MODEL_FILE):
             self.model = joblib.load(MODEL_FILE)
         else:
             self.retrain_model()
 
+        # Load scaler if available
+        if os.path.exists("scaler.pkl"):
+            self.scaler = joblib.load("scaler.pkl")
+        else:
+            self.scaler = None
+
     def predict(self, queue_length, active_counters, avg_service_time, hour_of_day, day_of_week):
         """Makes wait time prediction."""
         X = np.array([[queue_length, active_counters, avg_service_time, hour_of_day, day_of_week]])
+
+        # Apply scaling if scaler exists
+        if hasattr(self, 'scaler') and self.scaler is not None:
+            X = self.scaler.transform(X)
+
         prediction = self.model.predict(X)[0]
         return max(1.0, float(prediction))
 
@@ -118,13 +133,18 @@ class MLEngine:
         if not rows:
             return
 
-        data = np.array(rows)
-        X = data[:, :-1]
-        y = data[:, -1]
+    data = np.array(rows)
+    X = data[:, :-1]
+    y = data[:, -1]
 
-        # Fit model on current database
-        self.model.fit(X, y)
-        joblib.dump(self.model, MODEL_FILE)
+    # Fit scaler on new database records
+    from sklearn.preprocessing import StandardScaler
+    self.scaler = StandardScaler()
+    X_scaled = self.scaler.fit_transform(X)
 
+    # Fit model on scaled data and save both
+    self.model.fit(X_scaled, y)
+    joblib.dump(self.model, MODEL_FILE)
+    joblib.dump(self.scaler, "scaler.pkl")
 
 engine = MLEngine()
